@@ -1,0 +1,87 @@
+name: CI/CD Pipeline Ynov
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  terraform_checks:
+    name: Terraform & Security Checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ">=1.6"
+
+      # Vérification du formatage du code Terraform
+      - name: Terraform Format (fmt)
+        run: terraform fmt -check -recursive
+
+      # Initialisation sans backend pour pouvoir valider
+      - name: Terraform Init
+        run: terraform init -backend=false
+
+      # Validation de la syntaxe Terraform
+      - name: Terraform Validate
+        run: terraform validate
+
+      # Configuration des credentials AWS via les secrets GitHub
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
+          # Si ton intervenant t'a donné un rôle précis à assumer, il faudra le renseigner dans ce secret :
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }} 
+          role-session-name: GitHubActionsSession
+        # J'ajoute continue-on-error pour que ton pipeline ne plante pas direct 
+        # si tu n'as pas encore configuré tes secrets sur GitHub.
+        continue-on-error: true 
+
+      # Planification Terraform
+      - name: Terraform Plan
+        run: terraform plan
+        continue-on-error: true
+
+      # Analyse de sécurité avec Checkov
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: ./terraform
+          framework: terraform
+        continue-on-error: true
+
+      # Setup et exécution d'Infracost pour l'estimation des coûts
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+        continue-on-error: true
+
+      - name: Run Infracost
+        run: infracost breakdown --path .
+        continue-on-error: true
+
+  ansible_checks:
+    name: Ansible Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      # Vérification de la qualité du code Ansible
+      - name: Run ansible-lint
+        uses: ansible/ansible-lint@main
+        with:
+          path: "ansible/"

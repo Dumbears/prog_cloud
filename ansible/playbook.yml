@@ -1,0 +1,30 @@
+---
+- name: Mettre à jour le code source de la Lambda
+  hosts: localhost
+  gather_facts: false
+  vars:
+    # Le nom de la Lambda doit correspondre exactement à ce qu'on a défini dans Terraform
+    lambda_name: "ynov-iac-2025-converter" 
+    aws_region: "eu-west-3"
+    src_dir: "../src"
+    zip_dest: "../lambda_package.zip"
+
+  tasks:
+    - name: Installer les dépendances Python dans le dossier src
+      ansible.builtin.command:
+        cmd: "pip install -r {{ src_dir }}/requirements.txt -t {{ src_dir }}/"
+      changed_when: false
+
+    - name: Zipper le code source et les dépendances
+      community.general.archive:
+        path: "{{ src_dir }}/*"
+        dest: "{{ zip_dest }}"
+        format: zip
+
+    - name: Mettre à jour le code de la Lambda sur AWS
+      # Utilisation du module exigé par ton évaluation
+      amazon.aws.lambda_function:
+        name: "{{ lambda_name }}"
+        state: present
+        zip_file: "{{ zip_dest }}"
+        region: "{{ aws_region }}"
